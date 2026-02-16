@@ -19,7 +19,7 @@ type CountryInfoResponse struct {
 }
 
 type ExchangeResponse struct {
-	Country       string              `json:"country"`
-	BaseCurrency  string              `json:"base-currency"`
+	Country       string               `json:"country"`
+	BaseCurrency  string               `json:"base-currency"`
 	ExchangeRates []map[string]float64 `json:"exchange-rates"`
 }
