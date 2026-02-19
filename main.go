@@ -10,15 +10,18 @@ import (
 )
 
 func main() {
-
 	startTime := time.Now()
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc(
-		"/countryinfo/v1/status/",
-		handlers.StatusHandler(startTime),
-	)
+	// Status
+	mux.HandleFunc("/countryinfo/v1/status/", handlers.StatusHandler(startTime))
+
+	// Info
+	mux.HandleFunc("/countryinfo/v1/info/", handlers.InfoHandler)
+
+	// Exchange
+	mux.HandleFunc("/countryinfo/v1/exchange/", handlers.ExchangeHandler)
 
 	port := os.Getenv("PORT")
 	if port == "" {

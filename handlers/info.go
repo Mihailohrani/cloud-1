@@ -10,7 +10,12 @@ import (
 
 func InfoHandler(w http.ResponseWriter, r *http.Request) {
 
-	code := strings.TrimPrefix(r.URL.Path, "/countryinfo/v1/info/")
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	code := strings.ToLower(strings.TrimPrefix(r.URL.Path, "/countryinfo/v1/info/"))
 	if code == "" {
 		http.Error(w, "Missing country code", http.StatusBadRequest)
 		return
