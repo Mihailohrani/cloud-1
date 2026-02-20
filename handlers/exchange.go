@@ -2,16 +2,16 @@ package handlers
 
 import (
 	"encoding/json"
-	"fmt"
-	"io"
 	"net/http"
 	"sort"
 	"strings"
-	"time"
 
+	"cloud-1/clients"
 	"cloud-1/models"
 )
 
+// ExchangeHandler returns exchange rates from the base country currency
+// to the currencies of its neighboring countries.
 func ExchangeHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -27,24 +27,10 @@ func ExchangeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := &http.Client{Timeout: 8 * time.Second}
-
-	// 1) Base country
-	baseURL := "http://129.241.150.113:8080/v3.1/alpha/" + code
-	baseResp, err := client.Get(baseURL)
+	// 1) Fetch base country data
+	base, status, err := clients.GetCountryByAlpha(code)
 	if err != nil {
-		http.Error(w, "Failed to call REST Countries API", http.StatusBadGateway)
-		return
-	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
-
-		}
-	}(baseResp.Body)
-
-	if baseResp.StatusCode != http.StatusOK {
-		if baseResp.StatusCode == http.StatusNotFound {
+		if status == http.StatusNotFound {
 			http.Error(w, "Country not found", http.StatusNotFound)
 			return
 		}
@@ -52,20 +38,13 @@ func ExchangeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var baseCountries []models.RestCountry
-	if err := json.NewDecoder(baseResp.Body).Decode(&baseCountries); err != nil || len(baseCountries) == 0 {
-		http.Error(w, "Failed to decode country data", http.StatusBadGateway)
-		return
-	}
-	base := baseCountries[0]
-
 	baseCurrency := firstCurrencyCode(base.Currencies)
 	if baseCurrency == "" {
 		http.Error(w, "No base currency available for country", http.StatusBadGateway)
 		return
 	}
 
-	// No borders, return empty exchange rates
+	// No borders → no exchange rates
 	if len(base.Borders) == 0 {
 		out := models.ExchangeResponse{
 			Country:       base.Name.Common,
@@ -77,7 +56,7 @@ func ExchangeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2) Neighbor currencies
+	// 2) Collect unique neighbour currencies
 	neighborCurrenciesSet := map[string]struct{}{}
 	for _, alpha3 := range base.Borders {
 		alpha3 = strings.TrimSpace(alpha3)
@@ -85,28 +64,16 @@ func ExchangeHandler(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		neighborURL := "http://129.241.150.113:8080/v3.1/alpha/" + alpha3
-		nResp, err := client.Get(neighborURL)
+		neighbor, nStatus, err := clients.GetCountryByAlpha(alpha3)
 		if err != nil {
-			http.Error(w, "Failed to call REST Countries API", http.StatusBadGateway)
-			return
-		}
-
-		if nResp.StatusCode != http.StatusOK {
-			_ = nResp.Body.Close()
+			if nStatus == http.StatusNotFound {
+				continue
+			}
 			http.Error(w, "REST Countries API error", http.StatusBadGateway)
 			return
 		}
 
-		var nCountries []models.RestCountry
-		if err := json.NewDecoder(nResp.Body).Decode(&nCountries); err != nil || len(nCountries) == 0 {
-			_ = nResp.Body.Close()
-			http.Error(w, "Failed to decode neighbor country data", http.StatusBadGateway)
-			return
-		}
-		_ = nResp.Body.Close()
-
-		ccy := firstCurrencyCode(nCountries[0].Currencies)
+		ccy := firstCurrencyCode(neighbor.Currencies)
 		if ccy != "" && ccy != baseCurrency {
 			neighborCurrenciesSet[ccy] = struct{}{}
 		}
@@ -118,14 +85,14 @@ func ExchangeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Strings(neighborCurrencies)
 
-	// 3) Currency API call (once)
-	rates, err := fetchRates(client, baseCurrency)
+	// 3) Retrieve exchange rates for the base currency
+	rates, _, err := clients.GetRates(baseCurrency)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		http.Error(w, "Currencies API error", http.StatusBadGateway)
 		return
 	}
 
-	// Build output in the allowed format: []map[string]float64
+	// Build response in required format
 	ratesOut := make([]map[string]float64, 0, len(neighborCurrencies))
 	for _, ccy := range neighborCurrencies {
 		if rate, ok := rates[ccy]; ok {
@@ -143,74 +110,10 @@ func ExchangeHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(out)
 }
 
-// Picks the first key in the currencies map
+// firstCurrencyCode returns the first currency code found in the map.
 func firstCurrencyCode(m map[string]struct{}) string {
 	for k := range m {
 		return k
 	}
 	return ""
-}
-
-func fetchRates(client *http.Client, base string) (map[string]float64, error) {
-	// Correct endpoint per docs: /currency/{BASE}
-	url := "http://129.241.150.113:9090/currency/" + base
-
-	resp, err := client.Get(url)
-	if err != nil {
-		return nil, fmt.Errorf("failed to call Currencies API")
-	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
-
-		}
-	}(resp.Body)
-
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 300))
-		return nil, fmt.Errorf("currencies API error (status %d): %s", resp.StatusCode, strings.TrimSpace(string(b)))
-	}
-
-	// Expected shape: {"base":"NOK","rates":{...}}
-	var cr models.CurrencyResponse
-	if err := json.NewDecoder(resp.Body).Decode(&cr); err == nil && len(cr.Rates) > 0 {
-		return cr.Rates, nil
-	}
-
-	// Fallback if JSON differs
-	resp2, err := client.Get(url)
-	if err != nil {
-		return nil, fmt.Errorf("failed to call Currencies API")
-	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
-
-		}
-	}(resp2.Body)
-
-	if resp2.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("currencies API error (status %d)", resp2.StatusCode)
-	}
-
-	var raw map[string]any
-	if err := json.NewDecoder(resp2.Body).Decode(&raw); err != nil {
-		return nil, fmt.Errorf("failed to decode currency data")
-	}
-
-	if rAny, ok := raw["rates"]; ok {
-		if rMap, ok := rAny.(map[string]any); ok {
-			out := map[string]float64{}
-			for k, v := range rMap {
-				if f, ok := v.(float64); ok {
-					out[k] = f
-				}
-			}
-			if len(out) > 0 {
-				return out, nil
-			}
-		}
-	}
-
-	return nil, fmt.Errorf("failed to decode currency rates")
 }

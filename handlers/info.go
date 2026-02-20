@@ -2,14 +2,14 @@ package handlers
 
 import (
 	"encoding/json"
-	"io"
 	"net/http"
 	"strings"
-	"time"
 
+	"cloud-1/clients"
 	"cloud-1/models"
 )
 
+// InfoHandler returns general country information for a given ISO alpha-2 code.
 func InfoHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -25,24 +25,10 @@ func InfoHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	url := "http://129.241.150.113:8080/v3.1/alpha/" + code
-
-	client := &http.Client{Timeout: 8 * time.Second}
-	resp, err := client.Get(url)
+	// Fetch country data from REST Countries API via client
+	c, status, err := clients.GetCountryByAlpha(code)
 	if err != nil {
-		http.Error(w, "Failed to call REST Countries API", http.StatusBadGateway)
-		return
-	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
-
-		}
-	}(resp.Body)
-
-	if resp.StatusCode != http.StatusOK {
-		// keep it simple and predictable
-		if resp.StatusCode == http.StatusNotFound {
+		if status == http.StatusNotFound {
 			http.Error(w, "Country not found", http.StatusNotFound)
 			return
 		}
@@ -50,14 +36,7 @@ func InfoHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var countries []models.RestCountry
-	if err := json.NewDecoder(resp.Body).Decode(&countries); err != nil || len(countries) == 0 {
-		http.Error(w, "Failed to decode country data", http.StatusBadGateway)
-		return
-	}
-
-	c := countries[0]
-
+	// Use first capital if available
 	capital := ""
 	if len(c.Capital) > 0 {
 		capital = c.Capital[0]

@@ -1,10 +1,10 @@
 package models
 
 type StatusResponse struct {
-	RestCountries int    `json:"restcountriesapi"`
-	Currencies    int    `json:"currenciesapi"`
-	Version       string `json:"version"`
-	Uptime        int64  `json:"uptime"`
+	RestCountriesAPI int    `json:"restcountriesapi"`
+	CurrenciesAPI    int    `json:"currenciesapi"`
+	Version          string `json:"version"`
+	Uptime           int    `json:"uptime"`
 }
 
 type CountryInfoResponse struct {

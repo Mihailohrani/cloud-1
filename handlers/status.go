@@ -2,38 +2,32 @@ package handlers
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"time"
+
+	"cloud-1/models"
 )
 
 const (
-	restCountriesBase = "http://129.241.150.113:8080/v3.1/"
-	currencyBase      = "http://129.241.150.113:9090/currency/"
+	restCountriesProbe = "http://129.241.150.113:8080/v3.1/alpha/no"
+	currencyProbe      = "http://129.241.150.113:9090/currency/NOK"
 )
 
-type StatusResponse struct {
-	RestCountriesAPI int    `json:"restcountriesapi"`
-	CurrenciesAPI    int    `json:"currenciesapi"`
-	Version          string `json:"version"`
-	Uptime           int    `json:"uptime"`
-}
-
+// StatusHandler reports upstream service availability and this service uptime.
 func StatusHandler(start time.Time) http.HandlerFunc {
-	client := &http.Client{
-		Timeout: 7 * time.Second,
-	}
+	client := &http.Client{Timeout: 7 * time.Second}
 
 	return func(w http.ResponseWriter, r *http.Request) {
-
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
-		restCode := probeStatus(client, restCountriesBase+"alpha/no")
-		currCode := probeStatus(client, currencyBase+"NOK")
+		restCode := probeStatus(client, restCountriesProbe)
+		currCode := probeStatus(client, currencyProbe)
 
-		resp := StatusResponse{
+		resp := models.StatusResponse{
 			RestCountriesAPI: restCode,
 			CurrenciesAPI:    currCode,
 			Version:          "v1",
@@ -51,6 +45,7 @@ func StatusHandler(start time.Time) http.HandlerFunc {
 	}
 }
 
+// probeStatus returns the HTTP status code of a GET request to the given URL.
 func probeStatus(client *http.Client, url string) int {
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
@@ -61,7 +56,12 @@ func probeStatus(client *http.Client, url string) int {
 	if err != nil {
 		return 0
 	}
-	defer res.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(res.Body)
 
 	return res.StatusCode
 }
