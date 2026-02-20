@@ -36,7 +36,12 @@ func ExchangeHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to call REST Countries API", http.StatusBadGateway)
 		return
 	}
-	defer baseResp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(baseResp.Body)
 
 	if baseResp.StatusCode != http.StatusOK {
 		if baseResp.StatusCode == http.StatusNotFound {
@@ -152,13 +157,18 @@ func fetchRates(client *http.Client, base string) (map[string]float64, error) {
 
 	resp, err := client.Get(url)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to call Currencies API")
+		return nil, fmt.Errorf("failed to call Currencies API")
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 300))
-		return nil, fmt.Errorf("Currencies API error (status %d): %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		return nil, fmt.Errorf("currencies API error (status %d): %s", resp.StatusCode, strings.TrimSpace(string(b)))
 	}
 
 	// Expected shape: {"base":"NOK","rates":{...}}
@@ -170,17 +180,22 @@ func fetchRates(client *http.Client, base string) (map[string]float64, error) {
 	// Fallback if JSON differs
 	resp2, err := client.Get(url)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to call Currencies API")
+		return nil, fmt.Errorf("failed to call Currencies API")
 	}
-	defer resp2.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(resp2.Body)
 
 	if resp2.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Currencies API error (status %d)", resp2.StatusCode)
+		return nil, fmt.Errorf("currencies API error (status %d)", resp2.StatusCode)
 	}
 
 	var raw map[string]any
 	if err := json.NewDecoder(resp2.Body).Decode(&raw); err != nil {
-		return nil, fmt.Errorf("Failed to decode currency data")
+		return nil, fmt.Errorf("failed to decode currency data")
 	}
 
 	if rAny, ok := raw["rates"]; ok {
@@ -197,5 +212,5 @@ func fetchRates(client *http.Client, base string) (map[string]float64, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("Failed to decode currency rates")
+	return nil, fmt.Errorf("failed to decode currency rates")
 }
